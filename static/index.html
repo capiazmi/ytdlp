@@ -1,0 +1,87 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>ytdlp-web</title>
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <header>
+    <h1>ytdlp-web</h1>
+    <span class="muted small" id="version"></span>
+    <form method="post" action="/logout" id="logout" hidden><button class="link">Sign out</button></form>
+  </header>
+
+  <main>
+    <form id="url-form" class="row">
+      <input id="url" type="url" placeholder="Paste a YouTube URL…" required autofocus>
+      <button type="submit" id="fetch-btn">Fetch</button>
+    </form>
+    <p class="error" id="url-error" hidden></p>
+
+    <section id="video" class="card" hidden>
+      <div class="video-head">
+        <img id="thumb" alt="">
+        <div>
+          <h2 id="title"></h2>
+          <p class="muted" id="meta"></p>
+        </div>
+      </div>
+
+      <div class="grid">
+        <div>
+          <h3>Download</h3>
+          <div class="presets">
+            <button data-preset="best">Best (MP4)</button>
+            <button data-preset="1080">1080p</button>
+            <button data-preset="720">720p</button>
+            <button data-preset="480">480p</button>
+            <button data-preset="mp3" class="secondary">Audio MP3</button>
+            <button data-preset="m4a" class="secondary">Audio M4A</button>
+          </div>
+          <details>
+            <summary>All formats</summary>
+            <div class="table-wrap">
+              <table>
+                <thead><tr><th>ID</th><th>Type</th><th>Res</th><th>Ext</th><th>Size</th><th></th></tr></thead>
+                <tbody id="formats"></tbody>
+              </table>
+            </div>
+          </details>
+        </div>
+
+        <div>
+          <h3>Transcript</h3>
+          <p class="muted small" id="caption-summary"></p>
+          <div class="row">
+            <select id="lang"></select>
+            <select id="tformat">
+              <option value="txt">Plain text</option>
+              <option value="ts">With timestamps</option>
+              <option value="srt">SRT</option>
+              <option value="vtt">VTT</option>
+            </select>
+          </div>
+          <label class="small"><input type="checkbox" id="show-translated"> Show auto-translated languages</label>
+          <div class="row">
+            <button id="show-transcript">Show</button>
+            <button id="copy-transcript" class="secondary" disabled>Copy</button>
+            <button id="download-transcript" class="secondary">Download</button>
+          </div>
+        </div>
+      </div>
+
+      <pre id="transcript" hidden></pre>
+    </section>
+
+    <section>
+      <h3>Jobs</h3>
+      <p class="muted small" id="ttl-note"></p>
+      <ul id="jobs" class="jobs"><li class="muted">No jobs yet.</li></ul>
+    </section>
+  </main>
+
+  <script src="/app.js"></script>
+</body>
+</html>

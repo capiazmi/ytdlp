@@ -1,0 +1,62 @@
+:root {
+  --bg: #f6f7f9; --fg: #1b1f24; --muted: #667085; --card: #fff; --border: #e3e6ea;
+  --accent: #e5322d; --accent-fg: #fff; --ok: #12a150; --err: #d92d20; --code: #f1f3f5;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #0f1115; --fg: #e6e8eb; --muted: #8a93a3; --card: #171a21; --border: #262b35;
+    --accent: #ff4b45; --code: #11141a; color-scheme: dark;
+  }
+}
+* { box-sizing: border-box; }
+body { margin: 0; font: 15px/1.5 system-ui, -apple-system, Segoe UI, Roboto, sans-serif; background: var(--bg); color: var(--fg); }
+body.center { min-height: 100vh; display: grid; place-items: center; padding: 16px; }
+header { display: flex; align-items: baseline; gap: 12px; padding: 14px 20px; border-bottom: 1px solid var(--border); background: var(--card); }
+header h1 { font-size: 18px; margin: 0; }
+header form { margin-left: auto; }
+main { max-width: 980px; margin: 0 auto; padding: 20px 16px 60px; }
+h2 { margin: 0 0 4px; font-size: 18px; }
+h3 { margin: 24px 0 10px; font-size: 15px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); }
+.card { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 18px; margin-top: 16px; }
+.muted { color: var(--muted); } .small { font-size: 13px; }
+.error { color: var(--err); }
+.row { display: flex; gap: 8px; margin: 8px 0; flex-wrap: wrap; }
+.row > input, .row > select { flex: 1; min-width: 0; }
+input, select, button, .button {
+  font: inherit; padding: 9px 12px; border-radius: 8px; border: 1px solid var(--border);
+  background: var(--card); color: var(--fg);
+}
+input:focus, select:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
+button, .button { background: var(--accent); color: var(--accent-fg); border-color: transparent; cursor: pointer; font-weight: 600; text-decoration: none; display: inline-block; }
+button.secondary { background: transparent; color: var(--fg); border-color: var(--border); }
+button:disabled { opacity: .5; cursor: default; }
+button.small, .button.small { padding: 4px 10px; font-size: 13px; }
+button.link { background: none; color: var(--muted); padding: 0; font-weight: 400; }
+.video-head { display: flex; gap: 16px; align-items: center; }
+.video-head img { width: 180px; aspect-ratio: 16/9; object-fit: cover; border-radius: 8px; background: var(--code); }
+.grid { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; }
+.presets { display: flex; flex-wrap: wrap; gap: 8px; }
+details { margin-top: 12px; } summary { cursor: pointer; color: var(--muted); }
+.table-wrap { max-height: 320px; overflow: auto; margin-top: 8px; border: 1px solid var(--border); border-radius: 8px; }
+table { width: 100%; border-collapse: collapse; font-size: 13px; }
+th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--border); white-space: nowrap; }
+th { position: sticky; top: 0; background: var(--card); }
+pre { white-space: pre-wrap; word-break: break-word; background: var(--code); border: 1px solid var(--border); border-radius: 8px; padding: 14px; max-height: 480px; overflow: auto; margin-top: 16px; font-size: 13px; }
+.jobs { list-style: none; padding: 0; margin: 0; display: grid; gap: 10px; }
+.job { background: var(--card); border: 1px solid var(--border); border-radius: 10px; padding: 12px 14px; }
+.job-head, .job-foot { display: flex; justify-content: space-between; align-items: center; gap: 10px; }
+.job-head strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.job-foot .muted { overflow-wrap: anywhere; }
+.actions { display: flex; gap: 6px; flex-shrink: 0; }
+progress { width: 100%; height: 6px; margin: 8px 0; accent-color: var(--accent); }
+.job.done progress { accent-color: var(--ok); }
+.badge { font-size: 12px; padding: 2px 8px; border-radius: 99px; border: 1px solid var(--border); white-space: nowrap; color: var(--muted); }
+.badge.done { color: var(--ok); } .badge.failed { color: var(--err); }
+.login { width: 100%; max-width: 340px; display: grid; gap: 10px; }
+.login h1 { margin: 0; font-size: 20px; } .login p { margin: 0; }
+@media (max-width: 720px) {
+  .grid { grid-template-columns: 1fr; gap: 0; }
+  .video-head { flex-direction: column; align-items: flex-start; }
+  .video-head img { width: 100%; }
+}

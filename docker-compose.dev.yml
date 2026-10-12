@@ -1,0 +1,6 @@
+# Local dev: docker compose -f docker-compose.yml -f docker-compose.dev.yml up --build
+services:
+  app:
+    env_file: !override .env.local
+    ports:
+      - "127.0.0.1:3000:3000"

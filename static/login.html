@@ -1,0 +1,21 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Sign in · ytdlp-web</title>
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body class="center">
+  <form class="card login" method="post" action="/login">
+    <h1>ytdlp-web</h1>
+    <p class="muted">Enter PIN or password</p>
+    <p class="error" id="err" hidden>Wrong password, try again.</p>
+    <input type="password" name="password" autocomplete="current-password" autofocus required>
+    <button type="submit">Sign in</button>
+  </form>
+  <script>
+    if (new URLSearchParams(location.search).has('error')) document.getElementById('err').hidden = false;
+  </script>
+</body>
+</html>

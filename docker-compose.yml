@@ -1,0 +1,14 @@
+# Production (Dokploy). No published ports: Dokploy routes the domain to
+# container port 3000 and cloudflared handles public ingress.
+services:
+  app:
+    build: .
+    restart: unless-stopped
+    env_file: .env
+    expose:
+      - "3000"
+    volumes:
+      - ytdlp-data:/data
+
+volumes:
+  ytdlp-data:
