@@ -75,7 +75,7 @@ fn safe_next(next: Option<&str>) -> &str {
 }
 
 pub async fn login_page() -> Html<&'static str> {
-    Html(include_str!("../static/login.html"))
+    crate::assets::login_page()
 }
 
 #[derive(Deserialize)]

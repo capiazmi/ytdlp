@@ -38,7 +38,7 @@ fn not_found() -> ApiError {
 }
 
 pub async fn index() -> Html<&'static str> {
-    Html(include_str!("../static/index.html"))
+    crate::assets::index_page()
 }
 
 pub async fn healthz() -> &'static str {
