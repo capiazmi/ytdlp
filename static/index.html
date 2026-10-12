@@ -2,20 +2,33 @@
 <html lang="en">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>ytdlp-web</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#04060d">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="ytdlp">
+  <link rel="manifest" href="/manifest.webmanifest">
+  <link rel="icon" href="/icons/icon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="/apple-touch-icon.png">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=JetBrains+Mono:wght@500;700&display=swap">
   <link rel="stylesheet" href="/style.css">
+  <title>ytdlp</title>
 </head>
 <body>
   <header>
-    <h1>ytdlp-web</h1>
-    <span class="muted small" id="version"></span>
+    <img src="/icons/icon.svg" alt="" width="28" height="28">
+    <h1>ytdlp<span class="accent">_</span></h1>
+    <span class="muted small mono" id="version"></span>
     <form method="post" action="/logout" id="logout" hidden><button class="link">Sign out</button></form>
   </header>
 
   <main>
-    <form id="url-form" class="row">
-      <input id="url" type="url" placeholder="Paste a YouTube URL…" required autofocus>
+    <form id="url-form" class="url-bar">
+      <input id="url" type="url" inputmode="url" placeholder="Paste a YouTube link…" required autocomplete="off">
+      <button type="button" id="paste-btn" class="secondary" hidden title="Paste from clipboard">Paste</button>
       <button type="submit" id="fetch-btn">Fetch</button>
     </form>
     <p class="error" id="url-error" hidden></p>
@@ -33,12 +46,12 @@
         <div>
           <h3>Download</h3>
           <div class="presets">
-            <button data-preset="best">Best (MP4)</button>
+            <button data-preset="best">Best MP4</button>
             <button data-preset="1080">1080p</button>
             <button data-preset="720">720p</button>
             <button data-preset="480">480p</button>
-            <button data-preset="mp3" class="secondary">Audio MP3</button>
-            <button data-preset="m4a" class="secondary">Audio M4A</button>
+            <button data-preset="mp3" class="secondary">MP3</button>
+            <button data-preset="m4a" class="secondary">M4A</button>
           </div>
           <details>
             <summary>All formats</summary>
@@ -54,20 +67,28 @@
         <div>
           <h3>Transcript</h3>
           <p class="muted small" id="caption-summary"></p>
-          <div class="row">
+          <label class="field">
+            <span class="small muted">Language</span>
             <select id="lang"></select>
-            <select id="tformat">
-              <option value="txt">Plain text</option>
-              <option value="ts">With timestamps</option>
-              <option value="srt">SRT</option>
-              <option value="vtt">VTT</option>
-            </select>
+          </label>
+          <div class="checks">
+            <label><input type="checkbox" id="show-translated"> Auto-translated languages</label>
+            <label><input type="checkbox" id="timestamps"> Include timestamps</label>
           </div>
-          <label class="small"><input type="checkbox" id="show-translated"> Show auto-translated languages</label>
           <div class="row">
-            <button id="show-transcript">Show</button>
+            <button id="show-transcript">View</button>
             <button id="copy-transcript" class="secondary" disabled>Copy</button>
-            <button id="download-transcript" class="secondary">Download</button>
+            <button id="share-transcript" class="secondary" disabled hidden>Share</button>
+          </div>
+          <div class="export">
+            <span class="small muted">Export</span>
+            <div class="row">
+              <button class="secondary" data-export="pdf">PDF</button>
+              <button class="secondary" data-export="txt">TXT</button>
+              <button class="secondary" data-export="srt" title="Subtitle file for video players">SRT</button>
+              <button class="secondary" data-export="vtt" title="Subtitle file for web players">VTT</button>
+            </div>
+            <p class="small muted hint">PDF &amp; TXT follow the timestamps option. SRT &amp; VTT are subtitle files for video players and are always timed.</p>
           </div>
         </div>
       </div>
@@ -80,6 +101,25 @@
       <p class="muted small" id="ttl-note"></p>
       <ul id="jobs" class="jobs"><li class="muted">No jobs yet.</li></ul>
     </section>
+
+    <details class="help card">
+      <summary>Install &amp; share shortcuts</summary>
+      <dl>
+        <dt>Android (Chrome)</dt>
+        <dd>Menu ⋮ → <b>Install app</b>. Then in the YouTube app tap <b>Share → ytdlp</b> and the link opens here ready to go.</dd>
+        <dt>iPhone / iPad (Safari)</dt>
+        <dd>Share → <b>Add to Home Screen</b>. iOS doesn't let web apps appear in the share sheet, so create a Shortcut:
+          <ol>
+            <li>Shortcuts app → <b>+</b> → name it “ytdlp”.</li>
+            <li>Tap the <b>ⓘ</b> → enable <b>Show in Share Sheet</b>, accept <b>URLs</b>.</li>
+            <li>Add <b>URL Encode</b> (input: Shortcut Input).</li>
+            <li>Add <b>Open URLs</b> with: <code id="shortcut-url"></code><i>[URL Encoded Text]</i></li>
+          </ol>
+          Now YouTube → Share → More → <b>ytdlp</b>.</dd>
+        <dt>Desktop</dt>
+        <dd>Drag this to your bookmarks bar, then click it on any YouTube page: <a id="bookmarklet" class="button small secondary">⤓ ytdlp</a></dd>
+      </dl>
+    </details>
   </main>
 
   <script src="/app.js"></script>

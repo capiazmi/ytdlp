@@ -1,6 +1,8 @@
+mod assets;
 mod auth;
 mod config;
 mod jobs;
+mod pdf;
 mod routes;
 mod subtitles;
 mod ytdlp;
@@ -62,7 +64,7 @@ async fn main() -> anyhow::Result<()> {
 
     let protected = Router::new()
         .route("/", get(routes::index))
-        .route("/app.js", get(routes::app_js))
+        .route("/share", get(routes::index))
         .route("/api/status", get(routes::status))
         .route("/api/info", get(routes::info))
         .route("/api/transcript", get(routes::transcript))
@@ -75,7 +77,13 @@ async fn main() -> anyhow::Result<()> {
 
     let app = Router::new()
         .route("/healthz", get(routes::healthz))
-        .route("/style.css", get(routes::style_css))
+        .route("/style.css", get(assets::root_file))
+        .route("/app.js", get(assets::root_file))
+        .route("/sw.js", get(assets::root_file))
+        .route("/manifest.webmanifest", get(assets::root_file))
+        .route("/offline.html", get(assets::root_file))
+        .route("/icons/{name}", get(assets::icon))
+        .route("/apple-touch-icon.png", get(assets::apple_touch_icon))
         .route("/login", get(auth::login_page).post(auth::login))
         .merge(protected)
         .layer(TraceLayer::new_for_http())

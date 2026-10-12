@@ -2,20 +2,35 @@
 <html lang="en">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Sign in · ytdlp-web</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#04060d">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="ytdlp">
+  <link rel="manifest" href="/manifest.webmanifest">
+  <link rel="icon" href="/icons/icon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="/apple-touch-icon.png">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=JetBrains+Mono:wght@500;700&display=swap">
   <link rel="stylesheet" href="/style.css">
+  <title>Sign in · ytdlp</title>
 </head>
 <body class="center">
   <form class="card login" method="post" action="/login">
-    <h1>ytdlp-web</h1>
+    <img src="/icons/icon.svg" alt="" width="64" height="64">
+    <h1>ytdlp<span class="accent">_</span></h1>
     <p class="muted">Enter PIN or password</p>
     <p class="error" id="err" hidden>Wrong password, try again.</p>
-    <input type="password" name="password" autocomplete="current-password" autofocus required>
+    <input type="password" name="password" inputmode="text" autocomplete="current-password" autofocus required>
+    <input type="hidden" name="next" id="next">
     <button type="submit">Sign in</button>
   </form>
   <script>
-    if (new URLSearchParams(location.search).has('error')) document.getElementById('err').hidden = false;
+    const q = new URLSearchParams(location.search);
+    if (q.has('error')) document.getElementById('err').hidden = false;
+    document.getElementById('next').value = q.get('next') || '/';
   </script>
 </body>
 </html>

@@ -7,6 +7,7 @@ pub struct Config {
     pub file_ttl_hours: u64,
     pub max_concurrent_jobs: usize,
     pub ytdlp_path: String,
+    pub typst_path: String,
     pub cookies_file: Option<PathBuf>,
     pub auto_update: bool,
     /// Empty = allow every host yt-dlp supports.
@@ -46,6 +47,7 @@ impl Config {
             file_ttl_hours: parse("FILE_TTL_HOURS", 24),
             max_concurrent_jobs: parse("MAX_CONCURRENT_JOBS", 2).max(1),
             ytdlp_path: var("YTDLP_PATH").unwrap_or_else(|| "yt-dlp".into()),
+            typst_path: var("TYPST_PATH").unwrap_or_else(|| "typst".into()),
             cookies_file: var("YTDLP_COOKIES_FILE").map(PathBuf::from),
             auto_update: parse("YTDLP_AUTO_UPDATE", false),
             allowed_domains: var("ALLOWED_DOMAINS")

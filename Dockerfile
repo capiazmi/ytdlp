@@ -16,10 +16,17 @@ ARG TARGETARCH
 # Pin for reproducible builds; set YTDLP_AUTO_UPDATE=true to update on start.
 ARG YTDLP_VERSION=2026.08.19
 ARG DENO_VERSION=2.9.7
+ARG TYPST_VERSION=0.15.1
 
+# Noto fonts cover Latin, Arabic, Hebrew, Indic, Thai and CJK for PDF export.
+# The PDF only uses sans Regular/Medium/Bold, so serif, UI and other weights are pruned.
 RUN apt-get update \
- && apt-get install -y --no-install-recommends ca-certificates curl ffmpeg unzip \
- && rm -rf /var/lib/apt/lists/*
+ && apt-get install -y --no-install-recommends ca-certificates curl ffmpeg unzip xz-utils \
+      fonts-noto-core fonts-noto-cjk \
+ && rm -rf /var/lib/apt/lists/* \
+ && find /usr/share/fonts -type f \( -iname '*Serif*' -o -iname '*UI-*' -o -iname '*UI.*' \) -delete \
+ && find /usr/share/fonts -type f \( -iname '*.ttf' -o -iname '*.otf' -o -iname '*.ttc' \) \
+      ! -iname '*-Regular.*' ! -iname '*-Medium.*' ! -iname '*-Bold.*' -delete
 
 # yt-dlp standalone binary (no Python needed)
 RUN case "$TARGETARCH" in arm64) f=yt-dlp_linux_aarch64 ;; *) f=yt-dlp_linux ;; esac \
@@ -30,6 +37,12 @@ RUN case "$TARGETARCH" in arm64) f=yt-dlp_linux_aarch64 ;; *) f=yt-dlp_linux ;; 
 RUN case "$TARGETARCH" in arm64) a=aarch64 ;; *) a=x86_64 ;; esac \
  && curl -fsSL -o /tmp/deno.zip "https://github.com/denoland/deno/releases/download/v${DENO_VERSION}/deno-${a}-unknown-linux-gnu.zip" \
  && unzip /tmp/deno.zip -d /usr/local/bin && rm /tmp/deno.zip && chmod 755 /usr/local/bin/deno
+
+# Typst: renders transcript PDFs (shaping, RTL, CJK)
+RUN case "$TARGETARCH" in arm64) a=aarch64 ;; *) a=x86_64 ;; esac \
+ && curl -fsSL "https://github.com/typst/typst/releases/download/v${TYPST_VERSION}/typst-${a}-unknown-linux-musl.tar.xz" \
+    | tar -xJ -C /tmp \
+ && mv /tmp/typst-${a}-unknown-linux-musl/typst /usr/local/bin/typst && rm -rf /tmp/typst-*
 
 RUN useradd --uid 1000 --create-home app \
  && mkdir -p /data/downloads \

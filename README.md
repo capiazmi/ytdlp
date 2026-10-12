@@ -2,14 +2,19 @@
 
 Small Rust (Axum) web UI around `yt-dlp`: fetch video info, download video/audio
 with live progress, and get transcripts from existing YouTube captions
-(manual, auto-generated, auto-translated) as TXT, timestamped TXT, SRT or VTT.
+(manual, auto-generated, auto-translated) as PDF, TXT, SRT or VTT.
+PDF and TXT can include timestamps; in the PDF they link to that moment in the video.
+
+Installable as a PWA. On Android it appears in the share sheet (YouTube → Share → ytdlp);
+on iOS use the Shortcut described in the app's "Install & share shortcuts" panel.
 
 No database: jobs live in memory, files live under `DOWNLOAD_DIR` and are
 deleted after `FILE_TTL_HOURS`.
 
 ## Dev
 
-Needs `yt-dlp`, `ffmpeg` and `deno` on `PATH`.
+Needs `yt-dlp`, `ffmpeg`, `deno` and `typst` on `PATH`, plus Noto fonts
+(incl. Noto Sans CJK) for PDF export.
 
 ```sh
 cp .env.example .env.local   # set APP_PASSWORD
@@ -50,9 +55,10 @@ set `YTDLP_AUTO_UPDATE=true` to run `yt-dlp -U` on every container start.
 | Method | Path | |
 |---|---|---|
 | GET | `/api/info?url=` | metadata, formats, caption tracks |
-| GET | `/api/transcript?url=&lang=&kind=manual\|auto&format=txt\|ts\|srt\|vtt[&download=true]` | transcript |
+| GET | `/api/transcript?url=&lang=&kind=manual\|auto&format=txt\|pdf\|srt\|vtt[&timestamps=true][&download=true]` | transcript |
 | GET/POST | `/api/jobs` | list / create (`{url, preset: best\|1080\|720\|480\|mp3\|m4a\|custom, format_id?}`) |
 | DELETE | `/api/jobs/{id}` | remove job and its file |
 | GET | `/api/events` | SSE stream of job updates |
 | GET | `/files/{id}` | download finished file |
+| GET | `/share?url=\|text=` | PWA share target / deep link (auto-fetches) |
 | GET | `/healthz` | unauthenticated health check |

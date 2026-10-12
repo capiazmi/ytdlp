@@ -45,10 +45,32 @@ pub async fn require_auth(State(state): State<AppState>, req: Request, next: Nex
     if ok {
         return next.run(req).await;
     }
-    if req.uri().path().starts_with("/api/") || req.uri().path().starts_with("/files/") {
-        (StatusCode::UNAUTHORIZED, "login required").into_response()
-    } else {
+    let path = req.uri().path();
+    if path.starts_with("/api/") || path.starts_with("/files/") {
+        return (StatusCode::UNAUTHORIZED, "login required").into_response();
+    }
+    // Keep where they were going (e.g. /share?url=... from the share sheet).
+    let target = req.uri().path_and_query().map(|p| p.as_str()).unwrap_or("/");
+    if target == "/" {
         Redirect::to("/login").into_response()
+    } else {
+        let next: String = url::form_urlencoded::byte_serialize(target.as_bytes()).collect();
+        Redirect::to(&format!("/login?next={next}")).into_response()
+    }
+}
+
+/// Only same-site relative paths; blocks `//evil.com` and `/\\evil.com`.
+fn safe_next(next: Option<&str>) -> &str {
+    match next {
+        Some(n)
+            if n.starts_with('/')
+                && !n.starts_with("//")
+                && !n.starts_with("/\\")
+                && n.bytes().all(|b| b.is_ascii_graphic()) =>
+        {
+            n
+        }
+        _ => "/",
     }
 }
 
@@ -59,23 +81,26 @@ pub async fn login_page() -> Html<&'static str> {
 #[derive(Deserialize)]
 pub struct LoginForm {
     password: String,
+    next: Option<String>,
 }
 
 pub async fn login(State(state): State<AppState>, Form(form): Form<LoginForm>) -> Response {
+    let next = safe_next(form.next.as_deref());
     let Some(pw) = state.cfg.app_password.as_ref() else {
-        return Redirect::to("/").into_response();
+        return Redirect::to(next).into_response();
     };
     if !bool::from(form.password.as_bytes().ct_eq(pw.as_bytes())) {
         // Slow down brute force on short PINs.
         tokio::time::sleep(Duration::from_secs(1)).await;
-        return Redirect::to("/login?error=1").into_response();
+        let enc: String = url::form_urlencoded::byte_serialize(next.as_bytes()).collect();
+        return Redirect::to(&format!("/login?error=1&next={enc}")).into_response();
     }
     let secure = if state.cfg.cookie_secure { "; Secure" } else { "" };
     let cookie = format!(
         "{COOKIE}={}; Path=/; HttpOnly; SameSite=Lax; Max-Age=2592000{secure}",
         token(&state).unwrap_or_default()
     );
-    ([(header::SET_COOKIE, cookie)], Redirect::to("/")).into_response()
+    ([(header::SET_COOKIE, cookie)], Redirect::to(next)).into_response()
 }
 
 pub async fn logout() -> Response {

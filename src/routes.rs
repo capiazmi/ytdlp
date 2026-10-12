@@ -15,7 +15,7 @@ use serde_json::json;
 use tokio_stream::{wrappers::BroadcastStream, Stream, StreamExt};
 use uuid::Uuid;
 
-use crate::{jobs::NewJob, subtitles, AppState};
+use crate::{jobs::NewJob, pdf, subtitles, AppState};
 
 pub struct ApiError(StatusCode, String);
 
@@ -39,14 +39,6 @@ fn not_found() -> ApiError {
 
 pub async fn index() -> Html<&'static str> {
     Html(include_str!("../static/index.html"))
-}
-
-pub async fn app_js() -> impl IntoResponse {
-    ([(header::CONTENT_TYPE, "text/javascript; charset=utf-8")], include_str!("../static/app.js"))
-}
-
-pub async fn style_css() -> impl IntoResponse {
-    ([(header::CONTENT_TYPE, "text/css; charset=utf-8")], include_str!("../static/style.css"))
 }
 
 pub async fn healthz() -> &'static str {
@@ -78,13 +70,14 @@ pub struct TranscriptQuery {
     lang: String,
     /// manual | auto
     kind: String,
-    /// txt | ts | srt | vtt
+    /// txt | pdf | srt | vtt
     #[serde(default = "default_fmt")]
     format: String,
+    /// txt/pdf only; srt/vtt are always timed
+    #[serde(default)]
+    timestamps: bool,
     #[serde(default)]
     download: bool,
-    /// used for the download filename
-    id: Option<String>,
 }
 
 fn default_fmt() -> String {
@@ -93,32 +86,62 @@ fn default_fmt() -> String {
 
 pub async fn transcript(State(s): State<AppState>, Query(q): Query<TranscriptQuery>) -> ApiResult<Response> {
     let url = s.ytdlp.validate_url(&q.url)?;
+    let auto = q.kind == "auto";
+    // Also warms the metadata cache so fetch_vtt can skip re-extraction.
+    let info = s.ytdlp.info(&url).await?;
     let tmp = s.cfg.download_dir.join(".tmp").join(Uuid::new_v4().to_string());
-    let res = s.ytdlp.fetch_vtt(&url, &q.lang, q.kind == "auto", &tmp).await;
+    let res = transcript_body(&s, &q, &url, &info, auto, &tmp).await;
     let _ = tokio::fs::remove_dir_all(&tmp).await;
-    let vtt = res?;
+    let (body, ext, mime) = res?;
 
-    let segs = subtitles::parse_vtt(&vtt);
-    let (body, ext, mime) = match q.format.as_str() {
-        "ts" => (subtitles::to_timestamped(&segs), "txt", "text/plain"),
-        "srt" => (subtitles::to_srt(&segs), "srt", "application/x-subrip"),
-        "vtt" => (vtt, "vtt", "text/vtt"),
-        _ => (subtitles::to_text(&segs), "txt", "text/plain"),
-    };
-
-    let mut resp = ([(header::CONTENT_TYPE, format!("{mime}; charset=utf-8"))], body).into_response();
+    let mut resp = ([(header::CONTENT_TYPE, mime)], body).into_response();
     if q.download {
-        let id: String = q
-            .id
-            .unwrap_or_else(|| "transcript".into())
-            .chars()
-            .filter(|c| c.is_ascii_alphanumeric() || "-_".contains(*c))
-            .collect();
-        let suffix = if q.format == "ts" { ".timestamps" } else { "" };
-        let disp = format!("attachment; filename=\"{id}.{}{suffix}.{ext}\"", q.lang);
+        let id: String = info.id.chars().filter(|c| c.is_ascii_alphanumeric() || "-_".contains(*c)).collect();
+        let lang: String = q.lang.chars().filter(|c| c.is_ascii_alphanumeric() || "-_".contains(*c)).collect();
+        let suffix = if q.timestamps && matches!(ext, "txt" | "pdf") { ".timestamps" } else { "" };
+        let disp = format!("attachment; filename=\"{id}.{lang}{suffix}.{ext}\"");
         resp.headers_mut().insert(header::CONTENT_DISPOSITION, disp.parse().unwrap());
     }
     Ok(resp)
+}
+
+async fn transcript_body(
+    s: &AppState,
+    q: &TranscriptQuery,
+    url: &str,
+    info: &crate::ytdlp::VideoInfo,
+    auto: bool,
+    tmp: &std::path::Path,
+) -> anyhow::Result<(Body, &'static str, &'static str)> {
+    let vtt = s.ytdlp.fetch_vtt(url, &q.lang, auto, &tmp.join("sub")).await?;
+    let segs = subtitles::parse_vtt(&vtt);
+    Ok(match q.format.as_str() {
+        "srt" => (subtitles::to_srt(&segs).into(), "srt", "application/x-subrip; charset=utf-8"),
+        "vtt" => (vtt.into(), "vtt", "text/vtt; charset=utf-8"),
+        "pdf" => {
+            let c = &info.captions;
+            let list = if auto { c.auto.iter().chain(&c.translated).collect::<Vec<_>>() } else { c.manual.iter().collect() };
+            let lang_name = list.iter().find(|t| t.code == q.lang).map(|t| t.name.as_str()).unwrap_or(&q.lang);
+            let is_youtube = url::Url::parse(&info.webpage_url)
+                .ok()
+                .and_then(|u| u.host_str().map(|h| h.ends_with("youtube.com") || h.ends_with("youtu.be")))
+                .unwrap_or(false);
+            let meta = pdf::Meta {
+                title: &info.title,
+                uploader: info.uploader.as_deref(),
+                duration: info.duration,
+                url: if info.webpage_url.is_empty() { url } else { &info.webpage_url },
+                youtube_id: is_youtube.then_some(info.id.as_str()),
+                code: &q.lang,
+                lang_name,
+                auto,
+            };
+            let bytes = pdf::render(&s.cfg.typst_path, &tmp.join("pdf"), meta, &segs, q.timestamps).await?;
+            (bytes.into(), "pdf", "application/pdf")
+        }
+        _ if q.timestamps => (subtitles::to_timestamped(&segs).into(), "txt", "text/plain; charset=utf-8"),
+        _ => (subtitles::to_text(&segs).into(), "txt", "text/plain; charset=utf-8"),
+    })
 }
 
 pub async fn list_jobs(State(s): State<AppState>) -> impl IntoResponse {

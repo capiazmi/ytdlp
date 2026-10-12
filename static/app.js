@@ -39,9 +39,11 @@ api('/api/status').then((r) => r.json()).then((s) => {
 }).catch(() => {});
 
 // ---------- fetch info ----------
-$('#url-form').addEventListener('submit', async (e) => {
-  e.preventDefault();
+$('#url-form').addEventListener('submit', (e) => { e.preventDefault(); fetchInfo(); });
+
+async function fetchInfo() {
   const url = $('#url').value.trim();
+  if (!url) return;
   const btn = $('#fetch-btn');
   btn.disabled = true; btn.textContent = 'Fetching…';
   $('#url-error').hidden = true;
@@ -54,14 +56,42 @@ $('#url-form').addEventListener('submit', async (e) => {
   } finally {
     btn.disabled = false; btn.textContent = 'Fetch';
   }
-});
+}
+
+// Paste button (clipboard read needs a user gesture; not available everywhere).
+if (navigator.clipboard?.readText) {
+  $('#paste-btn').hidden = false;
+  $('#paste-btn').addEventListener('click', async () => {
+    try {
+      const text = await navigator.clipboard.readText();
+      const found = extractUrl(text);
+      if (found) { $('#url').value = found; fetchInfo(); }
+    } catch {}
+  });
+}
+
+function extractUrl(text) {
+  const m = (text || '').match(/https?:\/\/[^\s<>"']+/);
+  return m ? m[0] : null;
+}
+
+// Share target (/share?url=…&text=…) and deep links (/?url=…).
+(() => {
+  const q = new URLSearchParams(location.search);
+  const found = extractUrl(q.get('url')) || extractUrl(q.get('text')) || extractUrl(q.get('title'));
+  if (found) {
+    history.replaceState(null, '', '/');
+    $('#url').value = found;
+    fetchInfo();
+  }
+})();
 
 function renderInfo(info) {
   $('#video').hidden = false;
   $('#thumb').src = info.thumbnail || '';
   $('#title').textContent = info.title;
   $('#meta').textContent = [info.uploader, fmtDur(info.duration)].filter(Boolean).join(' · ');
-  $('#transcript').hidden = true; $('#copy-transcript').disabled = true;
+  $('#transcript').hidden = true; $('#copy-transcript').disabled = true; $('#share-transcript').disabled = true;
 
   const tbody = $('#formats');
   tbody.replaceChildren(...info.formats.map((f) => {
@@ -93,14 +123,14 @@ function renderLangs() {
   sel.replaceChildren(...groups.filter(Boolean));
   const none = !sel.options.length;
   if (none) sel.append(el('option', { textContent: 'No captions available', disabled: true }));
-  for (const id of ['#show-transcript', '#download-transcript']) $(id).disabled = none;
+  document.querySelectorAll('#show-transcript, [data-export]').forEach((b) => (b.disabled = none));
 }
 $('#show-translated').addEventListener('change', renderLangs);
 
 // ---------- transcript ----------
-function transcriptUrl(download) {
+function transcriptUrl(format, download) {
   const [kind, lang] = $('#lang').value.split(/:(.*)/s);
-  const p = new URLSearchParams({ url: state.url, lang, kind, format: $('#tformat').value, id: state.info.id });
+  const p = new URLSearchParams({ url: state.url, lang, kind, format, timestamps: $('#timestamps').checked });
   if (download) p.set('download', 'true');
   return '/api/transcript?' + p;
 }
@@ -109,24 +139,57 @@ $('#show-transcript').addEventListener('click', async () => {
   const btn = $('#show-transcript'), pre = $('#transcript');
   btn.disabled = true; btn.textContent = 'Loading…';
   try {
-    state.transcript = await (await api(transcriptUrl(false))).text();
+    state.transcript = await (await api(transcriptUrl('txt', false))).text();
     pre.textContent = state.transcript || '(empty)';
     pre.classList.remove('error');
-    $('#copy-transcript').disabled = !state.transcript;
+    $('#copy-transcript').disabled = $('#share-transcript').disabled = !state.transcript;
+    pre.hidden = false;
+    pre.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
   } catch (err) {
-    pre.textContent = err.message; pre.classList.add('error');
+    pre.textContent = err.message; pre.classList.add('error'); pre.hidden = false;
   } finally {
-    pre.hidden = false; btn.disabled = false; btn.textContent = 'Show';
+    btn.disabled = false; btn.textContent = 'View';
   }
 });
+// Re-render the open transcript when the timestamps toggle changes.
+$('#timestamps').addEventListener('change', () => { if (!$('#transcript').hidden) $('#show-transcript').click(); });
 
 $('#copy-transcript').addEventListener('click', async () => {
   await navigator.clipboard.writeText(state.transcript);
-  const b = $('#copy-transcript'); b.textContent = 'Copied!';
-  setTimeout(() => (b.textContent = 'Copy'), 1500);
+  flash($('#copy-transcript'), 'Copied!');
 });
 
-$('#download-transcript').addEventListener('click', () => { location.href = transcriptUrl(true); });
+if (navigator.share) {
+  $('#share-transcript').hidden = false;
+  $('#share-transcript').addEventListener('click', () =>
+    navigator.share({ title: state.info.title, text: state.transcript }).catch(() => {}));
+}
+
+document.querySelectorAll('[data-export]').forEach((b) => b.addEventListener('click', async () => {
+  // Fetch first so errors show inline instead of navigating to a JSON error page.
+  const label = b.textContent;
+  b.disabled = true; b.textContent = '…';
+  try {
+    const r = await api(transcriptUrl(b.dataset.export, true));
+    const name = (r.headers.get('content-disposition') || '').match(/filename="([^"]+)"/)?.[1] || 'transcript';
+    saveBlob(await r.blob(), name);
+  } catch (err) {
+    alert(err.message);
+  } finally {
+    b.disabled = false; b.textContent = label;
+  }
+}));
+
+function saveBlob(blob, name) {
+  const a = el('a', { href: URL.createObjectURL(blob), download: name });
+  document.body.append(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(a.href), 60_000);
+}
+
+function flash(btn, text) {
+  const old = btn.textContent; btn.textContent = text;
+  setTimeout(() => (btn.textContent = old), 1500);
+}
 
 // ---------- jobs ----------
 document.querySelectorAll('[data-preset]').forEach((b) =>
@@ -170,7 +233,29 @@ function renderJobs() {
   }));
 }
 
-api('/api/jobs').then((r) => r.json()).then((jobs) => jobs.forEach((j) => state.jobs.set(j.id, j))).then(renderJobs).catch(() => {});
 
-const es = new EventSource('/api/events');
-es.addEventListener('job', (e) => upsertJob(JSON.parse(e.data)));
+function loadJobs() {
+  return api('/api/jobs').then((r) => r.json()).then((jobs) => {
+    state.jobs = new Map(jobs.map((j) => [j.id, j]));
+    renderJobs();
+  }).catch(() => {});
+}
+
+// Mobile browsers drop the SSE stream in the background; reconnect and resync on return.
+let es;
+function connectEvents() {
+  es?.close();
+  es = new EventSource('/api/events');
+  es.addEventListener('job', (e) => upsertJob(JSON.parse(e.data)));
+}
+connectEvents();
+loadJobs();
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible') { loadJobs(); if (es.readyState === EventSource.CLOSED) connectEvents(); }
+});
+
+// ---------- PWA ----------
+if ('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js').catch(() => {});
+
+$('#shortcut-url').textContent = `${location.origin}/share?url=`;
+$('#bookmarklet').href = `javascript:location.href='${location.origin}/share?url='+encodeURIComponent(location.href)`;
