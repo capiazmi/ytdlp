@@ -54,11 +54,11 @@ RUN apt-get update \
  && rm /tmp/scribd-requirements.txt
 
 RUN useradd --uid 1000 --create-home app \
- && mkdir -p /data/downloads \
- && chown -R app:app /data /usr/local/bin/yt-dlp
+ && mkdir -p /data/downloads /app \
+ && chown -R app:app /data /app /usr/local/bin/yt-dlp
 
 COPY --from=build /app/target/release/ytdlp-web /usr/local/bin/ytdlp-web
-COPY scribd/run.py scribd/scribd-downloader.py /app/scribd/
+COPY --chown=app:app scribd/run.py scribd/scribd-downloader.py /app/scribd/
 
 USER app
 WORKDIR /app

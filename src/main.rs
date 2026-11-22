@@ -10,6 +10,7 @@ mod ytdlp;
 
 use std::{sync::Arc, time::Duration};
 
+use anyhow::Context;
 use axum::{
     middleware,
     routing::{delete, get, post},
@@ -36,7 +37,9 @@ async fn main() -> anyhow::Result<()> {
         .with_env_filter(EnvFilter::try_from_default_env().unwrap_or_else(|_| "info".into()))
         .init();
 
-    tokio::fs::create_dir_all(&cfg.download_dir).await?;
+    tokio::fs::create_dir_all(&cfg.download_dir)
+        .await
+        .with_context(|| format!("cannot create DOWNLOAD_DIR '{}'", cfg.download_dir.display()))?;
     let _ = tokio::fs::remove_dir_all(cfg.download_dir.join(".tmp")).await;
 
     let ytdlp = YtDlp::new(cfg.clone());
