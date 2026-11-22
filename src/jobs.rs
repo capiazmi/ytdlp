@@ -16,7 +16,11 @@ use tokio::{
 };
 use uuid::Uuid;
 
-use crate::{config::Config, ytdlp::YtDlp};
+use crate::{
+    config::Config,
+    scribd::{self, Scribd},
+    ytdlp::YtDlp,
+};
 
 #[derive(Clone, Copy, Debug, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
@@ -27,9 +31,25 @@ pub enum Status {
     Failed,
 }
 
+#[derive(Clone, Copy, Debug, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum Kind {
+    Video,
+    Scribd,
+}
+
+#[derive(Clone, Debug, Serialize)]
+pub struct OutFile {
+    pub name: String,
+    pub size: u64,
+    #[serde(skip)]
+    pub path: PathBuf,
+}
+
 #[derive(Clone, Debug, Serialize)]
 pub struct Job {
     pub id: Uuid,
+    pub kind: Kind,
     pub url: String,
     pub title: String,
     pub preset: String,
@@ -38,12 +58,9 @@ pub struct Job {
     pub speed: Option<String>,
     pub eta: Option<String>,
     pub stage: Option<String>,
-    pub filename: Option<String>,
-    pub filesize: Option<u64>,
+    pub files: Vec<OutFile>,
     pub error: Option<String>,
     pub created_at: u64,
-    #[serde(skip)]
-    pub file: Option<PathBuf>,
 }
 
 #[derive(Deserialize)]
@@ -57,12 +74,27 @@ pub struct NewJob {
     pub format_kind: Option<String>,
 }
 
+#[derive(Deserialize)]
+pub struct NewScribdJob {
+    pub url: String,
+    /// any of pdf | docx | txt
+    pub formats: Vec<String>,
+}
+
+/// What a job runs.
+enum Plan {
+    Video(Vec<String>),
+    Scribd(Vec<String>),
+}
+
 #[derive(Clone)]
 pub struct Jobs {
     cfg: Arc<Config>,
     ytdlp: YtDlp,
+    scribd: Scribd,
     jobs: Arc<RwLock<HashMap<Uuid, Job>>>,
     slots: Arc<Semaphore>,
+    scribd_slots: Arc<Semaphore>,
     pub events: broadcast::Sender<Job>,
 }
 
@@ -94,12 +126,14 @@ fn format_args(req: &NewJob) -> Result<Vec<String>> {
 }
 
 impl Jobs {
-    pub fn new(cfg: Arc<Config>, ytdlp: YtDlp) -> Self {
+    pub fn new(cfg: Arc<Config>, ytdlp: YtDlp, scribd: Scribd) -> Self {
         let (events, _) = broadcast::channel(256);
         Self {
             slots: Arc::new(Semaphore::new(cfg.max_concurrent_jobs)),
+            scribd_slots: Arc::new(Semaphore::new(cfg.scribd_max_concurrent)),
             cfg,
             ytdlp,
+            scribd,
             jobs: Default::default(),
             events,
         }
@@ -128,25 +162,49 @@ impl Jobs {
     pub async fn create(&self, req: NewJob) -> Result<Job> {
         let url = self.ytdlp.validate_url(&req.url)?;
         let fmt = format_args(&req)?;
+        let preset = if req.preset == "custom" {
+            format!("format {}", req.format_id.as_deref().unwrap_or_default())
+        } else {
+            req.preset.clone()
+        };
+        let title = req.title.clone().filter(|t| !t.is_empty()).unwrap_or_else(|| req.url.clone());
+        Ok(self.start(Kind::Video, url, title, preset, Plan::Video(fmt)).await)
+    }
+
+    pub async fn create_scribd(&self, req: NewScribdJob) -> Result<Job> {
+        let doc = Scribd::validate_url(&req.url)?;
+        let mut formats: Vec<String> = Vec::new();
+        for f in &req.formats {
+            let f = f.trim().to_lowercase();
+            if !scribd::FORMATS.contains(&f.as_str()) {
+                bail!("Unknown format '{f}'");
+            }
+            if !formats.contains(&f) {
+                formats.push(f);
+            }
+        }
+        if formats.is_empty() {
+            bail!("Pick at least one format");
+        }
+        let title = doc.title.unwrap_or_else(|| format!("Scribd document {}", doc.id));
+        Ok(self.start(Kind::Scribd, doc.url, title, formats.join(" + "), Plan::Scribd(formats)).await)
+    }
+
+    async fn start(&self, kind: Kind, url: String, title: String, preset: String, plan: Plan) -> Job {
         let job = Job {
             id: Uuid::new_v4(),
+            kind,
             url,
-            title: req.title.clone().filter(|t| !t.is_empty()).unwrap_or_else(|| req.url.clone()),
-            preset: if req.preset == "custom" {
-                format!("format {}", req.format_id.as_deref().unwrap_or_default())
-            } else {
-                req.preset.clone()
-            },
+            title,
+            preset,
             status: Status::Queued,
             progress: 0.0,
             speed: None,
             eta: None,
             stage: None,
-            filename: None,
-            filesize: None,
+            files: Vec::new(),
             error: None,
             created_at: now(),
-            file: None,
         };
         self.jobs.write().await.insert(job.id, job.clone());
         let _ = self.events.send(job.clone());
@@ -154,36 +212,126 @@ impl Jobs {
         let this = self.clone();
         let id = job.id;
         tokio::spawn(async move {
-            let _permit = this.slots.clone().acquire_owned().await;
+            let slots = match plan {
+                Plan::Video(_) => this.slots.clone(),
+                Plan::Scribd(_) => this.scribd_slots.clone(),
+            };
+            let _permit = slots.acquire_owned().await;
             this.update(id, |j| j.status = Status::Running).await;
             let dir = this.cfg.download_dir.join(id.to_string());
-            match this.run(id, &dir, fmt).await {
-                Ok(file) => {
-                    let size = tokio::fs::metadata(&file).await.ok().map(|m| m.len());
+            let res = match plan {
+                Plan::Video(fmt) => this.run(id, &dir, fmt).await.map(|p| vec![p]),
+                Plan::Scribd(formats) => this.run_scribd(id, &dir, formats).await,
+            };
+            match res {
+                Ok(paths) => {
+                    let mut files = Vec::new();
+                    for path in paths {
+                        let size = tokio::fs::metadata(&path).await.map(|m| m.len()).unwrap_or(0);
+                        let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+                        files.push(OutFile { name, size, path });
+                    }
                     this.update(id, |j| {
                         j.status = Status::Done;
                         j.progress = 100.0;
                         j.speed = None;
                         j.eta = None;
                         j.stage = None;
-                        j.filename = file.file_name().map(|n| n.to_string_lossy().into_owned());
-                        j.filesize = size;
-                        j.file = Some(file);
+                        j.files = files;
                     })
                     .await;
                 }
                 Err(e) => {
-                    tracing::warn!(job = %id, "download failed: {e:#}");
+                    tracing::warn!(job = %id, "job failed: {e:#}");
                     let _ = tokio::fs::remove_dir_all(&dir).await;
                     this.update(id, |j| {
                         j.status = Status::Failed;
+                        j.stage = None;
                         j.error = Some(e.to_string());
                     })
                     .await;
                 }
             }
         });
-        Ok(job)
+        job
+    }
+
+    async fn run_scribd(&self, id: Uuid, dir: &Path, formats: Vec<String>) -> Result<Vec<PathBuf>> {
+        tokio::fs::create_dir_all(dir).await?;
+        let url = self.get(id).await.map(|j| j.url).unwrap_or_default();
+        let mut child = self.scribd.command(&url, &formats, dir).spawn()?;
+        let pgid = child.id();
+        let stdout = child.stdout.take().expect("piped");
+        let mut stderr = child.stderr.take().expect("piped");
+        let err_task = tokio::spawn(async move {
+            let mut buf = Vec::new();
+            let _ = stderr.read_to_end(&mut buf).await;
+            buf
+        });
+
+        let printing = formats.iter().any(|f| f == "pdf");
+        let work = async {
+            let mut lines = BufReader::new(stdout).lines();
+            let mut failure: Option<String> = None;
+            while let Some(line) = lines.next_line().await? {
+                // 0-90% for loading/printing pages; merging and DOCX building take the rest.
+                let (pct, stage) = match scribd::parse_line(&line) {
+                    scribd::Line::Pages(n) => (Some(2.0), Some(format!("{n} pages"))),
+                    scribd::Line::Printed(a, b) if b > 0 => (Some(90.0 * a as f32 / b as f32), Some(format!("page {a}/{b}"))),
+                    scribd::Line::Loaded(a, b) if b > 0 && !printing => {
+                        (Some(90.0 * a as f32 / b as f32), Some(format!("reading page {a}/{b}")))
+                    }
+                    scribd::Line::Stage(s) => (None, Some(s.to_string())),
+                    scribd::Line::Failed(e) => {
+                        failure.get_or_insert(e);
+                        (None, None)
+                    }
+                    scribd::Line::Reason(r) => {
+                        if let Some(f) = failure.as_mut() {
+                            f.push_str(&format!(" {}.", r.trim_end_matches('.')));
+                        }
+                        (None, None)
+                    }
+                    _ => (None, None),
+                };
+                if pct.is_some() || stage.is_some() {
+                    self.update(id, |j| {
+                        if let Some(p) = pct {
+                            j.progress = p;
+                        }
+                        if stage.is_some() {
+                            j.stage = stage;
+                        }
+                    })
+                    .await;
+                }
+            }
+            anyhow::Ok((child.wait().await?, failure))
+        };
+        let limit = Duration::from_secs(self.cfg.scribd_timeout_minutes * 60);
+        let res = tokio::time::timeout(limit, work).await;
+        // Chrome is a grandchild; take down the whole group, finished or not.
+        #[cfg(unix)]
+        if let Some(pid) = pgid {
+            unsafe { libc::kill(-(pid as i32), libc::SIGKILL) };
+        }
+        let (status, failure) = match res {
+            Err(_) => bail!("Timed out after {} minutes", self.cfg.scribd_timeout_minutes),
+            Ok(r) => r?,
+        };
+        let stderr = err_task.await.unwrap_or_default();
+        if !status.success() {
+            let msg = failure.unwrap_or_else(|| {
+                let s = String::from_utf8_lossy(&stderr);
+                s.lines().rev().find(|l| !l.trim().is_empty()).unwrap_or("Scribd export failed").trim().to_string()
+            });
+            bail!("{msg}");
+        }
+        let files = scribd::outputs(dir, &formats).await;
+        if files.is_empty() {
+            bail!("Export finished but no file was found");
+        }
+        Ok(files)
     }
 
     async fn run(&self, id: Uuid, dir: &Path, fmt: Vec<String>) -> Result<PathBuf> {

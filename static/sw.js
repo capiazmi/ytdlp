@@ -1,6 +1,6 @@
 // App-shell caching only. API, SSE and file downloads always hit the network.
 const CACHE = 'ytdlp-v1';
-const SHELL = ['/style.css', '/app.js', '/offline.html', '/icons/icon.svg', '/icons/icon-192.png'];
+const SHELL = ['/style.css', '/common.js', '/app.js', '/scribd.js', '/offline.html', '/icons/icon.svg', '/icons/icon-192.png'];
 
 self.addEventListener('install', (e) => {
   e.waitUntil(caches.open(CACHE).then((c) => c.addAll(SHELL)).then(() => self.skipWaiting()));

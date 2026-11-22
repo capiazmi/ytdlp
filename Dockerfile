@@ -44,17 +44,31 @@ RUN case "$TARGETARCH" in arm64) a=aarch64 ;; *) a=x86_64 ;; esac \
     | tar -xJ -C /tmp \
  && mv /tmp/typst-${a}-unknown-linux-musl/typst /usr/local/bin/typst && rm -rf /tmp/typst-*
 
+# Scribd downloader: Python + Selenium driving Debian's Chromium/chromedriver.
+COPY scribd/requirements.txt /tmp/scribd-requirements.txt
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends chromium chromium-driver python3 python3-venv \
+ && rm -rf /var/lib/apt/lists/* \
+ && python3 -m venv /opt/scribd \
+ && /opt/scribd/bin/pip install --no-cache-dir -r /tmp/scribd-requirements.txt \
+ && rm /tmp/scribd-requirements.txt
+
 RUN useradd --uid 1000 --create-home app \
  && mkdir -p /data/downloads \
  && chown -R app:app /data /usr/local/bin/yt-dlp
 
 COPY --from=build /app/target/release/ytdlp-web /usr/local/bin/ytdlp-web
+COPY scribd/run.py scribd/scribd-downloader.py /app/scribd/
 
 USER app
 WORKDIR /app
 ENV APP_PORT=3000 \
     DOWNLOAD_DIR=/data/downloads \
     XDG_CACHE_HOME=/data/.cache \
+    SCRIBD_PYTHON=/opt/scribd/bin/python \
+    SCRIBD_SCRIPT=/app/scribd/run.py \
+    CHROME_BIN=/usr/bin/chromium \
+    CHROMEDRIVER=/usr/bin/chromedriver \
     RUST_LOG=info
 VOLUME /data
 EXPOSE 3000

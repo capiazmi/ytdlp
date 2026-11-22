@@ -15,7 +15,10 @@ use serde_json::json;
 use tokio_stream::{wrappers::BroadcastStream, Stream, StreamExt};
 use uuid::Uuid;
 
-use crate::{jobs::NewJob, pdf, subtitles, AppState};
+use crate::{
+    jobs::{NewJob, NewScribdJob},
+    pdf, subtitles, AppState,
+};
 
 pub struct ApiError(StatusCode, String);
 
@@ -41,6 +44,10 @@ pub async fn index() -> Html<&'static str> {
     crate::assets::index_page()
 }
 
+pub async fn scribd_page() -> Html<&'static str> {
+    crate::assets::scribd_page()
+}
+
 pub async fn healthz() -> &'static str {
     "ok"
 }
@@ -51,6 +58,8 @@ pub async fn status(State(s): State<AppState>) -> Json<serde_json::Value> {
         "auth": s.cfg.app_password.is_some(),
         "file_ttl_hours": s.cfg.file_ttl_hours,
         "cookies": s.cfg.cookies_file.as_ref().is_some_and(|p| p.exists()),
+        "scribd": s.scribd_error.is_none(),
+        "scribd_error": s.scribd_error,
     }))
 }
 
@@ -152,6 +161,13 @@ pub async fn create_job(State(s): State<AppState>, Json(req): Json<NewJob>) -> A
     Ok((StatusCode::CREATED, Json(s.jobs.create(req).await?)))
 }
 
+pub async fn create_scribd_job(State(s): State<AppState>, Json(req): Json<NewScribdJob>) -> ApiResult<impl IntoResponse> {
+    if let Some(e) = &s.scribd_error {
+        return Err(ApiError(StatusCode::SERVICE_UNAVAILABLE, format!("Scribd downloader unavailable: {e}")));
+    }
+    Ok((StatusCode::CREATED, Json(s.jobs.create_scribd(req).await?)))
+}
+
 pub async fn delete_job(State(s): State<AppState>, Path(id): Path<Uuid>) -> ApiResult<StatusCode> {
     if s.jobs.remove(id).await {
         Ok(StatusCode::NO_CONTENT)
@@ -170,13 +186,20 @@ pub async fn events(State(s): State<AppState>) -> Sse<impl Stream<Item = Result<
 }
 
 pub async fn download_file(State(s): State<AppState>, Path(id): Path<Uuid>) -> ApiResult<Response> {
+    serve_file(&s, id, 0).await
+}
+
+pub async fn download_nth_file(State(s): State<AppState>, Path((id, n)): Path<(Uuid, usize)>) -> ApiResult<Response> {
+    serve_file(&s, id, n).await
+}
+
+async fn serve_file(s: &AppState, id: Uuid, n: usize) -> ApiResult<Response> {
     let job = s.jobs.get(id).await.ok_or_else(not_found)?;
-    let path = job.file.ok_or_else(not_found)?;
-    let file = tokio::fs::File::open(&path).await.map_err(|_| not_found())?;
+    let out = job.files.into_iter().nth(n).ok_or_else(not_found)?;
+    let file = tokio::fs::File::open(&out.path).await.map_err(|_| not_found())?;
     let len = file.metadata().await.map(|m| m.len()).unwrap_or(0);
-    let name: String = job
-        .filename
-        .unwrap_or_else(|| "download".into())
+    let name: String = out
+        .name
         .chars()
         .map(|c| if c.is_ascii_graphic() && c != '"' && c != '\\' { c } else { '_' })
         .collect();

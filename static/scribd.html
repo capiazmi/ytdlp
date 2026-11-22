@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#04060d">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="ytdlp">
+  <link rel="manifest" href="/manifest.webmanifest">
+  <link rel="icon" href="/icons/icon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="/apple-touch-icon.png">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=JetBrains+Mono:wght@500;700&display=swap">
+  <link rel="stylesheet" href="/style.css">
+  <title>Scribd · ytdlp</title>
+</head>
+<body data-kind="scribd">
+  <header>
+    <img src="/icons/icon.svg" alt="" width="28" height="28">
+    <h1>ytdlp<span class="accent">_</span></h1>
+    <nav class="tabs"><a href="/">YouTube</a><a href="/scribd" aria-current="page">Scribd</a></nav>
+    <form method="post" action="/logout" id="logout" hidden><button class="link">Sign out</button></form>
+  </header>
+
+  <main>
+    <p class="error card" id="unavailable" hidden></p>
+
+    <form id="scribd-form" class="card">
+      <div class="url-bar">
+        <textarea id="url" rows="1" inputmode="url" placeholder="Paste Scribd link(s)…" required autocomplete="off" spellcheck="false"></textarea>
+        <button type="button" id="paste-btn" class="secondary" hidden title="Paste from clipboard">Paste</button>
+      </div>
+      <div class="checks inline">
+        <label><input type="checkbox" name="fmt" value="pdf" checked> PDF <span class="muted small">exact copy</span></label>
+        <label><input type="checkbox" name="fmt" value="docx"> DOCX <span class="muted small">editable Word</span></label>
+        <label><input type="checkbox" name="fmt" value="txt"> TXT <span class="muted small">plain text</span></label>
+      </div>
+      <button type="submit" id="go-btn" class="wide">Download</button>
+      <p class="error" id="url-error" hidden></p>
+      <p class="small muted hint">Works with <code>/document/…</code> and <code>/doc/…</code> links, locale sites (<code>de.scribd.com</code>…)
+        and private links with <code>secret_password</code>. Paste several links (one per line) to queue them all.
+        A headless Chrome renders every page, so large documents take a few minutes.</p>
+    </form>
+
+    <section>
+      <h3>Jobs</h3>
+      <p class="muted small" id="ttl-note"></p>
+      <ul id="jobs" class="jobs"><li class="muted">No jobs yet.</li></ul>
+    </section>
+  </main>
+
+  <script src="/common.js"></script>
+  <script src="/scribd.js"></script>
+</body>
+</html>

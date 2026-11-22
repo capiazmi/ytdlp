@@ -16,6 +16,10 @@ pub struct Config {
     pub app_password: Option<String>,
     pub session_secret: String,
     pub cookie_secure: bool,
+    pub scribd_python: String,
+    pub scribd_script: String,
+    pub scribd_max_concurrent: usize,
+    pub scribd_timeout_minutes: u64,
 }
 
 fn var(key: &str) -> Option<String> {
@@ -61,6 +65,11 @@ impl Config {
             app_password,
             session_secret,
             cookie_secure: parse("COOKIE_SECURE", false),
+            scribd_python: var("SCRIBD_PYTHON").unwrap_or_else(|| "python3".into()),
+            scribd_script: var("SCRIBD_SCRIPT").unwrap_or_else(|| "./scribd/run.py".into()),
+            // Each Chrome can take 1.5-2.5 GB on large documents.
+            scribd_max_concurrent: parse("SCRIBD_MAX_CONCURRENT", 1).max(1),
+            scribd_timeout_minutes: parse("SCRIBD_TIMEOUT_MINUTES", 60).max(1),
         }
     }
 }

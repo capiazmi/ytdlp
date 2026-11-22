@@ -4,6 +4,7 @@ mod config;
 mod jobs;
 mod pdf;
 mod routes;
+mod scribd;
 mod subtitles;
 mod ytdlp;
 
@@ -17,13 +18,15 @@ use axum::{
 use tower_http::trace::TraceLayer;
 use tracing_subscriber::EnvFilter;
 
-use crate::{config::Config, jobs::Jobs, ytdlp::YtDlp};
+use crate::{config::Config, jobs::Jobs, scribd::Scribd, ytdlp::YtDlp};
 
 #[derive(Clone)]
 pub struct AppState {
     pub cfg: Arc<Config>,
     pub ytdlp: YtDlp,
     pub jobs: Jobs,
+    /// Why the Scribd page can't run, checked once at startup.
+    pub scribd_error: Option<String>,
 }
 
 #[tokio::main]
@@ -48,7 +51,14 @@ async fn main() -> anyhow::Result<()> {
         tracing::warn!("APP_PASSWORD is not set: the app is open to anyone who can reach it");
     }
 
-    let jobs = Jobs::new(cfg.clone(), ytdlp.clone());
+    let scribd = Scribd::new(cfg.clone());
+    let scribd_error = scribd.check().await;
+    match &scribd_error {
+        None => tracing::info!("scribd downloader ready"),
+        Some(e) => tracing::warn!("scribd downloader unavailable: {e}"),
+    }
+
+    let jobs = Jobs::new(cfg.clone(), ytdlp.clone(), scribd);
     {
         let jobs = jobs.clone();
         tokio::spawn(async move {
@@ -60,18 +70,21 @@ async fn main() -> anyhow::Result<()> {
         });
     }
 
-    let state = AppState { cfg: cfg.clone(), ytdlp, jobs };
+    let state = AppState { cfg: cfg.clone(), ytdlp, jobs, scribd_error };
 
     let protected = Router::new()
         .route("/", get(routes::index))
         .route("/share", get(routes::index))
+        .route("/scribd", get(routes::scribd_page))
         .route("/api/status", get(routes::status))
         .route("/api/info", get(routes::info))
         .route("/api/transcript", get(routes::transcript))
         .route("/api/jobs", get(routes::list_jobs).post(routes::create_job))
         .route("/api/jobs/{id}", delete(routes::delete_job))
+        .route("/api/scribd/jobs", post(routes::create_scribd_job))
         .route("/api/events", get(routes::events))
         .route("/files/{id}", get(routes::download_file))
+        .route("/files/{id}/{n}", get(routes::download_nth_file))
         .route("/logout", post(auth::logout))
         .layer(middleware::from_fn_with_state(state.clone(), auth::require_auth));
 
@@ -79,6 +92,8 @@ async fn main() -> anyhow::Result<()> {
         .route("/healthz", get(routes::healthz))
         .route("/style.css", get(assets::root_file))
         .route("/app.js", get(assets::root_file))
+        .route("/common.js", get(assets::root_file))
+        .route("/scribd.js", get(assets::root_file))
         .route("/sw.js", get(assets::root_file))
         .route("/manifest.webmanifest", get(assets::root_file))
         .route("/offline.html", get(assets::root_file))

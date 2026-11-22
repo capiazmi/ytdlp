@@ -1,42 +1,17 @@
-const $ = (s) => document.querySelector(s);
-const state = { info: null, url: null, transcript: '', jobs: new Map() };
+// YouTube / yt-dlp page. Shared helpers and the jobs list live in common.js.
+const state = { info: null, url: null, transcript: '' };
 
-const fmtBytes = (n) => {
-  if (!n) return '';
-  const u = ['B', 'KB', 'MB', 'GB'];
-  let i = 0;
-  while (n >= 1024 && i < u.length - 1) { n /= 1024; i++; }
-  return `${n.toFixed(i ? 1 : 0)} ${u[i]}`;
-};
 const fmtDur = (s) => {
   if (!s) return '';
   s = Math.round(s);
   const h = Math.floor(s / 3600), m = Math.floor(s / 60) % 60, sec = s % 60;
   return (h ? `${h}:${String(m).padStart(2, '0')}` : m) + ':' + String(sec).padStart(2, '0');
 };
-const el = (tag, props = {}, ...children) => {
-  const e = Object.assign(document.createElement(tag), props);
-  e.append(...children.filter((c) => c != null));
-  return e;
-};
-
-async function api(path, opts) {
-  const r = await fetch(path, opts);
-  if (r.status === 401) { location.href = '/login'; throw new Error('login required'); }
-  if (!r.ok) {
-    let msg = r.statusText;
-    try { msg = (await r.json()).error || msg; } catch {}
-    throw new Error(msg);
-  }
-  return r;
-}
 
 // ---------- status ----------
-api('/api/status').then((r) => r.json()).then((s) => {
-  $('#version').textContent = s.ytdlp_version ? `yt-dlp ${s.ytdlp_version}` : 'yt-dlp not found';
-  $('#logout').hidden = !s.auth;
-  $('#ttl-note').textContent = `Downloaded files are deleted after ${s.file_ttl_hours}h.`;
-}).catch(() => {});
+statusReady.then((s) => {
+  if ('ytdlp_version' in s) $('#version').textContent = s.ytdlp_version ? `yt-dlp ${s.ytdlp_version}` : 'yt-dlp not found';
+});
 
 // ---------- fetch info ----------
 $('#url-form').addEventListener('submit', (e) => { e.preventDefault(); fetchInfo(); });
@@ -70,15 +45,15 @@ if (navigator.clipboard?.readText) {
   });
 }
 
-function extractUrl(text) {
-  const m = (text || '').match(/https?:\/\/[^\s<>"']+/);
-  return m ? m[0] : null;
-}
-
 // Share target (/share?url=…&text=…) and deep links (/?url=…).
 (() => {
   const q = new URLSearchParams(location.search);
   const found = extractUrl(q.get('url')) || extractUrl(q.get('text')) || extractUrl(q.get('title'));
+  // Shared Scribd links go to the Scribd page.
+  if (found && isScribd(found)) {
+    location.replace('/scribd?url=' + encodeURIComponent(found));
+    return;
+  }
   if (found) {
     history.replaceState(null, '', '/');
     $('#url').value = found;
@@ -180,82 +155,16 @@ document.querySelectorAll('[data-export]').forEach((b) => b.addEventListener('cl
   }
 }));
 
-function saveBlob(blob, name) {
-  const a = el('a', { href: URL.createObjectURL(blob), download: name });
-  document.body.append(a); a.click(); a.remove();
-  setTimeout(() => URL.revokeObjectURL(a.href), 60_000);
-}
-
-function flash(btn, text) {
-  const old = btn.textContent; btn.textContent = text;
-  setTimeout(() => (btn.textContent = old), 1500);
-}
-
 // ---------- jobs ----------
 document.querySelectorAll('[data-preset]').forEach((b) =>
   b.addEventListener('click', () => startJob({ preset: b.dataset.preset })));
 
 async function startJob(opts) {
   try {
-    const job = await (await api('/api/jobs', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ url: state.url, title: state.info?.title, ...opts }),
-    })).json();
-    upsertJob(job);
+    upsertJob(await postJson('/api/jobs', { url: state.url, title: state.info?.title, ...opts }));
   } catch (err) { alert(err.message); }
 }
 
-function upsertJob(job) { state.jobs.set(job.id, job); renderJobs(); }
-
-function renderJobs() {
-  const list = [...state.jobs.values()].sort((a, b) => b.created_at - a.created_at);
-  const ul = $('#jobs');
-  if (!list.length) { ul.replaceChildren(el('li', { className: 'muted', textContent: 'No jobs yet.' })); return; }
-  ul.replaceChildren(...list.map((j) => {
-    const detail = j.status === 'running'
-      ? [`${j.progress.toFixed(1)}%`, j.stage, j.speed, j.eta && `ETA ${j.eta}`].filter(Boolean).join(' · ')
-      : j.status === 'done' ? [j.filename, fmtBytes(j.filesize)].filter(Boolean).join(' · ')
-      : j.status === 'failed' ? j.error : 'waiting for a free slot…';
-    const actions = el('div', { className: 'actions' });
-    if (j.status === 'done') actions.append(el('a', { href: `/files/${j.id}`, className: 'button small', textContent: 'Save file' }));
-    if (j.status !== 'running' && j.status !== 'queued') {
-      const del = el('button', { className: 'small secondary', textContent: 'Remove' });
-      del.onclick = async () => { await api(`/api/jobs/${j.id}`, { method: 'DELETE' }).catch(() => {}); state.jobs.delete(j.id); renderJobs(); };
-      actions.append(del);
-    }
-    return el('li', { className: `job ${j.status}` },
-      el('div', { className: 'job-head' },
-        el('strong', { textContent: j.title }),
-        el('span', { className: `badge ${j.status}`, textContent: `${j.status} · ${j.preset}` })),
-      el('progress', { max: 100, value: j.progress }),
-      el('div', { className: 'job-foot' }, el('span', { className: 'muted small', textContent: detail || '' }), actions));
-  }));
-}
-
-
-function loadJobs() {
-  return api('/api/jobs').then((r) => r.json()).then((jobs) => {
-    state.jobs = new Map(jobs.map((j) => [j.id, j]));
-    renderJobs();
-  }).catch(() => {});
-}
-
-// Mobile browsers drop the SSE stream in the background; reconnect and resync on return.
-let es;
-function connectEvents() {
-  es?.close();
-  es = new EventSource('/api/events');
-  es.addEventListener('job', (e) => upsertJob(JSON.parse(e.data)));
-}
-connectEvents();
-loadJobs();
-document.addEventListener('visibilitychange', () => {
-  if (document.visibilityState === 'visible') { loadJobs(); if (es.readyState === EventSource.CLOSED) connectEvents(); }
-});
-
-// ---------- PWA ----------
-if ('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js').catch(() => {});
-
+// ---------- shortcuts ----------
 $('#shortcut-url').textContent = `${location.origin}/share?url=`;
 $('#bookmarklet').href = `javascript:location.href='${location.origin}/share?url='+encodeURIComponent(location.href)`;

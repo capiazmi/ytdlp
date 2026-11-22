@@ -4,6 +4,8 @@ services:
   app:
     build: .
     restart: unless-stopped
+    # Reaps Chrome processes left behind by the Scribd downloader.
+    init: true
     env_file: .env
     expose:
       - "3000"
